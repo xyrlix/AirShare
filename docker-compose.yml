@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  airshare:
+    build: .
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./backend/data:/app/data
+    environment:
+      - PORT=8443
+      - ROOM_SECRET=airshare-secret
+  coturn:
+    image: coturn/coturn
+    command: ["-n", "--log-file", "/var/log/turn.log", "--no-auth", "--fingerprint", "--lt-cred-mech", "--min-port", "49152", "--max-port", "49252", "--listening-port", "3478", "--listening-ip", "0.0.0.0"]
+    ports:
+      - "3478:3478"
+      - "49152-49252:49152-49252/udp"
