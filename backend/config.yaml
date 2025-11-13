@@ -1,0 +1,33 @@
+# AirShare 服务配置文件
+
+server:
+  port: 8080
+  host: "0.0.0.0"
+  web_root: "../frontend/build/web"
+
+discovery:
+  service_name: "_airshare._tcp"
+  domain: "local."
+  port: 5353
+  enabled: true
+
+transfer:
+  storage_path: "./storage"
+  max_file_size: 1073741824  # 1GB
+  chunk_size: 65536          # 64KB
+  enable_resume: true
+  cleanup_period: 24         # 小时
+
+security:
+  enable_tls: false
+  cert_file: ""
+  key_file: ""
+  enable_cors: true
+  allowed_origins:
+    - "*"
+
+# 日志配置
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"

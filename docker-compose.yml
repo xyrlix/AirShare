@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  airshare-backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/storage:/app/storage
+      - ./backend/config.yaml:/app/config.yaml
+    environment:
+      - AIRSHARE_ENV=production
+    restart: unless-stopped
+    networks:
+      - airshare-network
+
+  airshare-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8081:80"
+    depends_on:
+      - airshare-backend
+    restart: unless-stopped
+    networks:
+      - airshare-network
+
+networks:
+  airshare-network:
+    driver: bridge
+
+volumes:
+  airshare-storage:
+    driver: local

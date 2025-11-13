@@ -1,0 +1,102 @@
+name: airshare_frontend
+description: AirShare跨平台文件传输应用前端
+
+# 发布管理
+publish_to: 'none'
+
+# 版本信息
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+# 依赖项
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # 核心框架
+  flutter_riverpod: ^2.4.0
+  go_router: ^11.0.0
+  
+  # Material Design 3
+  material_color_utilities: ^0.5.0
+  
+  # 网络通信
+  web_socket_channel: ^3.0.0
+  http: ^1.1.0
+  
+  # 文件处理
+  file_picker: ^6.1.0
+  path_provider: ^2.1.1
+  
+  # 数据存储
+  shared_preferences: ^2.2.2
+  sqflite: ^2.3.0
+  
+  # 状态管理
+  provider: ^6.1.1
+  
+  # 工具类
+  uuid: ^4.2.0
+  crypto: ^3.0.3
+  
+  # 国际化
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.18.1
+  
+  # 动画效果
+  lottie: ^2.7.0
+  
+  # 平台特定功能
+  url_launcher: ^6.2.0
+  qr_code_scanner: ^1.0.1
+  webview_flutter: ^4.4.0
+
+# 开发依赖项
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+# flutter配置
+flutter:
+  uses-material-design: true
+  
+  # 字体资源
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
+        - asset: assets/fonts/Roboto-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Roboto-Bold.ttf
+          weight: 700
+  
+  # 资源文件
+  assets:
+    - assets/images/
+    - assets/animations/
+    - assets/translations/
+    
+  # 平台特定配置
+  generate: true
+
+# 多语言支持
+flutter_intl:
+  enabled: true
+  class_name: S
+  main_locale: zh_CN
+  arb_dir: lib/l10n
+  output_dir: lib/generated
+
+# 构建配置
+flutter_native_splash:
+  color: "#2196F3"
+  image: assets/images/splash.png
+  
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/icon.png"
