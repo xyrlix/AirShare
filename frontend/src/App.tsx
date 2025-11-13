@@ -1,35 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import DeviceList from './components/DeviceList'
 import Language from './components/Language'
-import History from './components/History'
+import { History } from './components/History'
 import Settings from './components/Settings'
 import LanDevices from './components/LanDevices'
 import { addRecord } from './services/history'
-import { putRecvChunk, getRecvChunkIndices, assembleRecvFile, clearRecv, putRecvMeta, fileKey, getSendState, putSendState } from './services/db'
+import { putRecvChunk, getRecvChunkIndices, assembleRecvFile, clearRecv, putRecvMeta, fileKey, getSendState, putSendState, clearSendState } from './services/db'
 import { useSettings } from './store/settings'
 import { generateKeyPair, exportPubJwk, importPubJwk, deriveAesGcmKey, aesEncrypt, aesDecrypt, makeIv } from './network/crypto'
+import { Select, Button, Progress, notification } from 'antd'
+import FileManager from './components/FileManager'
+import { useTranslation } from 'react-i18next'
 
-function DeviceList({ ws, selfId, room, token, exp, sig, peers }: { ws: WebSocket | null, selfId: string, room: string, token: string, exp: number, sig: string, peers: { id: string, name?: string }[] }) {
-  const [qr, setQr] = useState<string>('')
-  useEffect(() => {
-    const url = window.location.origin.replace('http:', 'https:')
-    const qs = new URLSearchParams({ room, url, token, exp: String(exp), sig }).toString()
-    fetch(`${url}/api/qr/room?${qs}`).then(r => r.json()).then(j => setQr(j.data))
-  }, [room, token, exp, sig])
-  return (
-    <div>
-      <div>房间 {room}</div>
-      {qr && <img src={qr} alt="qr" style={{ width: 160, height: 160 }} />}
-      <ul>
-        <li>自己 {selfId}</li>
-        {peers.map(p => <li key={p.id}>{p.name || p.id}</li>)}
-      </ul>
-      <button onClick={() => ws?.send(JSON.stringify({ t: 'peers' }))}>刷新设备</button>
-    </div>
-  )
-}
+ 
 
-function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string, peers: { id: string }[] }) {
+function Transfer({ ws, selfId, peers, room }: { ws: WebSocket | null, selfId: string, peers: { id: string }[], room: string }) {
   const [to, setTo] = useState<string>('')
   const [connected, setConnected] = useState<boolean>(false)
   const [logs, setLogs] = useState<string[]>([])
@@ -49,6 +34,8 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
   const timeoutTimerRef = React.useRef<any>(null)
   const filesQueueRef = React.useRef<File[]>([])
   const lastSentRef = React.useRef<number>(0)
+  const retryAtRef = React.useRef<Map<number, number>>(new Map())
+  const retryCountRef = React.useRef<Map<number, number>>(new Map())
   const settings = useSettings()
   const myPrivRef = React.useRef<CryptoKey | null>(null)
   const myPubRef = React.useRef<CryptoKey | null>(null)
@@ -87,20 +74,20 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
     const msg = JSON.parse(String(e.data))
     if (msg.type === 'meta') { recvRef.current = { id: msg.id, name: msg.name, size: msg.size, chunkSize: msg.chunkSize, total: msg.total, receivedBytes: 0, chunks: new Map(), receivedSet: new Set(), salt: msg.salt }; putRecvMeta(msg.id, { name: msg.name, size: msg.size, chunkSize: msg.chunkSize, total: msg.total, salt: msg.salt }); getRecvChunkIndices(msg.id).then(list => ctrlRef.current?.send(JSON.stringify({ type: 'state', id: msg.id, received: list }))) }
     if (msg.type === 'chunk') { }
-    if (msg.type === 'ack') { const s = sendRef.current; if (s && s.id === msg.id && s.pending.has(msg.index)) { s.pending.delete(msg.index); s.ackedBytes += msg.bytes; const dt = (Date.now() - s.startedAt) / 1000; s.rateKBps = dt > 0 ? Math.round((s.ackedBytes / 1024) / dt) : 0; const bps = s.rateKBps * 1024; setEta(bps > 0 ? Math.ceil((s.size - s.ackedBytes) / bps) : 0); const st = sendTimesRef.current.get(msg.index); if (st) { const rtt = Date.now() - st; sentCountRef.current += 1; if (srttRef.current === 0) srttRef.current = rtt; else srttRef.current = 0.875 * srttRef.current + 0.125 * rtt; rttvarRef.current = 0.75 * rttvarRef.current + 0.25 * Math.abs(srttRef.current - rtt); const expected = (cwndRef.current * (s.chunkSize)) / (srttRef.current || 1); if (bps < expected * 0.8 && cwndRef.current > 4) cwndRef.current = Math.max(cwndRef.current - 1, 4); else if (bps > expected * 0.9 && cwndRef.current < 128) cwndRef.current = cwndRef.current + 1; sendTimesRef.current.delete(msg.index) } persistSendState(); if (s.ackedBytes >= s.size) { addRecord({ id: crypto.randomUUID(), name: s.name, size: s.size, peer: to, time: Date.now(), dir: 'out' }); const keystr = fileKey(s.name, s.size, (s.file as any).lastModified || 0); clearSendState(keystr); sendRef.current = null; dequeueNext() } else { scheduleSend() } } }
+    if (msg.type === 'ack') { const s = sendRef.current; if (s && s.id === msg.id && s.pending.has(msg.index)) { s.pending.delete(msg.index); s.ackedBytes += msg.bytes; const dt = (Date.now() - s.startedAt) / 1000; s.rateKBps = dt > 0 ? Math.round((s.ackedBytes / 1024) / dt) : 0; const bps = s.rateKBps * 1024; setEta(bps > 0 ? Math.ceil((s.size - s.ackedBytes) / bps) : 0); const st = sendTimesRef.current.get(msg.index); if (st) { const rtt = Date.now() - st; sentCountRef.current += 1; if (srttRef.current === 0) srttRef.current = rtt; else srttRef.current = 0.875 * srttRef.current + 0.125 * rtt; rttvarRef.current = 0.75 * rttvarRef.current + 0.25 * Math.abs(srttRef.current - rtt); const expected = (cwndRef.current * (s.chunkSize)) / (srttRef.current || 1); if (bps < expected * 0.8 && cwndRef.current > 4) cwndRef.current = Math.max(cwndRef.current - 1, 4); else if (bps > expected * 0.9 && cwndRef.current < 128) cwndRef.current = cwndRef.current + 1; sendTimesRef.current.delete(msg.index) } persistSendState(); if (s.ackedBytes >= s.size) { addRecord({ id: crypto.randomUUID(), name: s.name, size: s.size, peer: to, time: Date.now(), dir: 'out' }); notification.success({ message: '发送完成', description: s.name }); const keystr = fileKey(s.name, s.size, (s.file as any).lastModified || 0); clearSendState(keystr); sendRef.current = null; dequeueNext() } else { scheduleSend() } } }
     if (msg.type === 'state') { const s = sendRef.current; if (s && s.id === msg.id) { const set = new Set<number>(msg.received || []); s.nextIndex = 0; s.pending.clear(); for (let i = 0; i < s.total; i++) { if (!set.has(i)) s.missing.add(i) } scheduleSend() } }
   }
   async function onData(e: MessageEvent) {
     const r = recvRef.current
     const key = sessionKeyRef.current
-    if (!r || !key) return
+    if (!r) return
     const buf = e.data as ArrayBuffer
     const idx = r.chunks.size
     const iv = makeIv(r.salt, idx)
     try {
-      const plain = await aesDecrypt(key, iv, buf)
+      const plain = (settings.encrypt && key) ? await aesDecrypt(key, iv, buf) : buf
       r.chunks.set(idx, plain)
-      r.receivedBytes += plain.byteLength
+      r.receivedBytes += (plain as ArrayBuffer).byteLength
       r.receivedSet.add(idx)
       putRecvChunk(r.id, idx, plain as ArrayBuffer)
       ctrlRef.current?.send(JSON.stringify({ type: 'ack', id: r.id, index: idx, bytes: (plain as ArrayBuffer).byteLength }))
@@ -117,7 +104,7 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
   }
   useEffect(() => {
     if (!ws) return
-    ws.onmessage = e => {
+    const handler = (e: MessageEvent) => {
       const m = JSON.parse(e.data)
       if (m.t === 'signal') {
         const pc = pcRef.current
@@ -125,11 +112,27 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
         if (m.data.type === 'offer') pc.setRemoteDescription(m.data).then(() => pc.createAnswer().then(a => pc.setLocalDescription(a).then(() => ws.send(JSON.stringify({ t: 'signal', to: m.from, data: a })))) )
         else if (m.data.type === 'answer') pc.setRemoteDescription(m.data)
         else if (m.data.type === 'candidate') pc.addIceCandidate(m.data)
-        else if (m.data.type === 'key') { importPubJwk(m.data.jwk).then(pub => { peerPubRef.current = pub; const priv = myPrivRef.current; if (priv) deriveAesGcmKey(priv, pub).then(k => { sessionKeyRef.current = k }) }) }
+        else if (m.data.type === 'key') {
+          importPubJwk(m.data.jwk).then(async pub => {
+            peerPubRef.current = pub
+            if (!myPrivRef.current || !myPubRef.current) {
+              const kp = await generateKeyPair()
+              myPrivRef.current = kp.privateKey
+              myPubRef.current = kp.publicKey
+              const jwk2 = await exportPubJwk(kp.publicKey)
+              try { await fetch(`${url}/api/session/key`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room, jwk: jwk2, version: 1 }) }) } catch {}
+              ws.send(JSON.stringify({ t: 'signal', to: m.from, data: { type: 'key', jwk: jwk2, v: 1 } }))
+            }
+            const priv = myPrivRef.current
+            if (priv) deriveAesGcmKey(priv, pub).then(k => { sessionKeyRef.current = k })
+          })
+        }
       }
     }
+    ws.addEventListener('message', handler)
+    return () => { ws.removeEventListener('message', handler) }
   }, [ws])
-  async function connectPeer(id: string) { setTo(id); setupPc(true); const kp = await generateKeyPair(); myPrivRef.current = kp.privateKey; myPubRef.current = kp.publicKey; const jwk = await exportPubJwk(kp.publicKey); ws?.send(JSON.stringify({ t: 'signal', to: id, data: { type: 'key', jwk } })) }
+  async function connectPeer(id: string) { setTo(id); setupPc(true); const kp = await generateKeyPair(); myPrivRef.current = kp.privateKey; myPubRef.current = kp.publicKey; const jwk = await exportPubJwk(kp.publicKey); try { await fetch(`${url}/api/session/key`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room, jwk, version: 1 }) }) } catch {} ws?.send(JSON.stringify({ t: 'signal', to: id, data: { type: 'key', jwk, v: 1 } })) }
   async function sendFileInput(f: File) {
     const ctrl = ctrlRef.current
     const data = dataRef.current
@@ -166,7 +169,7 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
     const buf = await file.slice(start, end).arrayBuffer()
     const key = sessionKeyRef.current
     const iv = makeIv(s.salt || '', index)
-    const enc = key ? await aesEncrypt(key, iv, buf) : buf
+    const enc = (settings.encrypt && key) ? await aesEncrypt(key, iv, buf) : buf
     const now = Date.now()
     if (settings.bandwidthKBps > 0 && lastSentRef.current) {
       const kb = (enc as ArrayBuffer).byteLength / 1024
@@ -192,7 +195,7 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
       const buf = await s.file.slice(start, end).arrayBuffer()
       const key = sessionKeyRef.current
       const iv = makeIv(s.salt || '', i)
-      const enc = key ? await aesEncrypt(key, iv, buf) : buf
+      const enc = (settings.encrypt && key) ? await aesEncrypt(key, iv, buf) : buf
       const form = new FormData()
       form.append('bin', new Blob([enc]))
       await fetch(`${base}/api/files/upload/chunk?id=${id}&index=${i}`, { method: 'POST', body: form })
@@ -202,16 +205,19 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
   }
   async function downloadAndDecrypt(link: string, total: number, chunkSize: number, salt: string) {
     const key = sessionKeyRef.current
-    if (!key) return
     const parts: BlobPart[] = []
     for (let i = 0; i < total; i++) {
       const start = i * chunkSize
       const end = start + chunkSize - 1
       const r = await fetch(link, { headers: { Range: `bytes=${start}-${end}` } })
       const enc = await r.arrayBuffer()
-      const iv = makeIv(salt, i)
-      const plain = await aesDecrypt(key, iv, enc)
-      parts.push(plain)
+      if (settings.encrypt && key) {
+        const iv = makeIv(salt, i)
+        const plain = await aesDecrypt(key, iv, enc)
+        parts.push(plain)
+      } else {
+        parts.push(enc)
+      }
     }
     const blob = new Blob(parts)
     addRecord({ id: crypto.randomUUID(), name: link.split('=')[1] || 'file', size: blob.size, peer: to, time: Date.now(), dir: 'in' })
@@ -220,9 +226,27 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
     const s = sendRef.current
     if (!s || s.paused) return
     const windowSize = cwndRef.current
-    while (s.pending.size < windowSize && s.nextIndex < s.total) {
-      const i = s.nextIndex++
-      sendChunk(i)
+    const now = Date.now()
+    const candidates = Array.from(s.missing.values()).filter(i => (retryAtRef.current.get(i) || 0) <= now)
+    candidates.sort((a, b) => {
+      const ta = retryAtRef.current.get(a) || 0
+      const tb = retryAtRef.current.get(b) || 0
+      if (ta !== tb) return ta - tb
+      return a - b
+    })
+    while (s.pending.size < windowSize) {
+      if (candidates.length > 0) {
+        const picked = candidates.shift()!
+        s.missing.delete(picked)
+        sendChunk(picked)
+        continue
+      }
+      if (s.nextIndex < s.total) {
+        const i = s.nextIndex++
+        sendChunk(i)
+        continue
+      }
+      break
     }
   }
   function checkTimeouts() {
@@ -236,6 +260,11 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
         sendTimesRef.current.delete(idx)
         cwndRef.current = Math.max(Math.floor(cwndRef.current / 2), 4)
         lossCountRef.current += 1
+        const prev = retryCountRef.current.get(idx) || 0
+        const n = prev + 1
+        retryCountRef.current.set(idx, n)
+        const wait = Math.min(300000, Math.pow(2, n) * 500)
+        retryAtRef.current.set(idx, Date.now() + wait)
       }
     }
     if (lossCountRef.current > 0 && sentCountRef.current > 0) {
@@ -258,24 +287,30 @@ function Transfer({ ws, selfId, peers }: { ws: WebSocket | null, selfId: string,
       <Settings />
       <LanDevices />
       <div>选择设备</div>
-      <select value={to} onChange={e => connectPeer(e.target.value)}>
-        <option value="">请选择</option>
-        {peers.filter(p => p.id !== selfId).map(p => <option key={p.id} value={p.id}>{p.id}</option>)}
-      </select>
+      <Select style={{ width: 240 }} value={to} onChange={v => connectPeer(v)} options={[{ value: '', label: '请选择' }, ...peers.filter(p => p.id !== selfId).map(p => ({ value: p.id, label: p.id }))]} />
       <div>{connected ? '已连接' : '未连接'}</div>
       <input type="file" multiple webkitdirectory="" onChange={e => { const fs = e.target.files; if (fs && fs.length) enqueueFiles(fs) }} />
       <div>
         <textarea rows={2} value={textInput} onChange={e => setTextInput(e.target.value)} placeholder="输入文本发送" />
-        <button onClick={() => { const ch = textRef.current; if (ch && ch.readyState === 'open' && textInput.trim()) { ch.send(textInput); addRecord({ id: crypto.randomUUID(), name: '[text]', size: textInput.length, peer: to, time: Date.now(), dir: 'out' }); setTextInput('') } }}>发送文本</button>
+        <Button onClick={() => { const ch = textRef.current; if (ch && ch.readyState === 'open' && textInput.trim()) { ch.send(textInput); addRecord({ id: crypto.randomUUID(), name: '[text]', size: textInput.length, peer: to, time: Date.now(), dir: 'out' }); setTextInput('') } }}>发送文本</Button>
       </div>
       <div>ETA {eta}s</div>
+      <Progress percent={Math.min(100, Math.round(((sendRef.current?.ackedBytes || 0) / (sendRef.current?.size || 1)) * 100))} />
+      <div>
+        <Button onClick={() => { const s = sendRef.current; if (s) s.paused = true }}>暂停</Button>
+        <Button style={{ marginLeft: 8 }} onClick={() => { const s = sendRef.current; if (s) { s.paused = false; scheduleSend() } }}>恢复</Button>
+        <Button danger style={{ marginLeft: 8 }} onClick={() => { const s = sendRef.current; if (s) { s.paused = true; const keystr = fileKey(s.name, s.size, (s.file as any).lastModified || 0); clearSendState(keystr); sendRef.current = null; dequeueNext() } }}>删除当前</Button>
+        <Button style={{ marginLeft: 8 }} onClick={() => { const q = filesQueueRef.current; if (q.length > 1) { const last = q.pop(); if (last) q.unshift(last); filesQueueRef.current = q } }}>提升下一个优先级</Button>
+      </div>
       <div>{logs.map((l, i) => <div key={i}>{l}</div>)}</div>
-      <History />
     </div>
   )
 }
 
+ 
+
 export default function App() {
+  const { t } = useTranslation()
   const [room, setRoom] = useState<string>('')
   const [token, setToken] = useState<string>('')
   const [exp, setExp] = useState<number>(0)
@@ -303,32 +338,32 @@ export default function App() {
       }
       setToken(tkv); setExp(expv); setSig(sigv)
       const s = new WebSocket(`${url.replace('https', 'wss')}`)
-      s.onmessage = e => {
+      const handler = (e: MessageEvent) => {
         const m = JSON.parse(e.data)
         if (m.t === 'hello') setId(m.id)
         if (m.t === 'peers') setPeers(m.peers)
         if (m.t === 'leave') setPeers(p => p.filter(x => x.id !== m.id))
-        if (m.t === 'signal') {}
       }
+      s.addEventListener('message', handler)
       s.onopen = () => { s.send(JSON.stringify({ t: 'join', room: v, token: tkv, exp: expv, sig: sigv })); s.send(JSON.stringify({ t: 'peers' })) }
       setWs(s)
     })()
     return () => ws?.close()
   }, [url])
-  if (blocked) return <div>指纹不匹配，已阻止连接</div>
+  if (blocked) return <div>{t('blocked_fp')}</div>
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, padding: 16 }}>
       <div>
-        <h2>设备</h2>
+        <h2>{t('devices')}</h2>
         <DeviceList ws={ws} selfId={id} room={room} token={token} exp={exp} sig={sig} peers={peers} />
-        <h2>文件</h2>
-        <div>文件管理接口待接入</div>
+        <h2>{t('files')}</h2>
+        <FileManager baseUrl={url} onChanged={() => {}} />
       </div>
       <div>
-        <h2>传输</h2>
-        <Transfer ws={ws} selfId={id} peers={peers} />
-        <h2>历史</h2>
-        <div>历史记录待接入</div>
+        <h2>{t('transfer')}</h2>
+        <Transfer ws={ws} selfId={id} peers={peers} room={room} />
+        <h2>{t('history')}</h2>
+        <History />
       </div>
     </div>
   )

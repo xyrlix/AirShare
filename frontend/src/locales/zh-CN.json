@@ -3,5 +3,16 @@
   "files": "文件",
   "transfer": "传输",
   "history": "历史",
-  "settings": "设置"
+  "settings": "设置",
+  "room": "房间",
+  "self": "自己",
+  "refresh": "刷新设备",
+  "lan_devices": "局域网设备",
+  "name": "名称",
+  "address": "地址",
+  "port": "端口",
+  "fingerprint": "指纹",
+  "action": "操作",
+  "open": "打开",
+  "blocked_fp": "指纹不匹配，已阻止连接"
 }

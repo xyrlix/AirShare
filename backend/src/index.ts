@@ -18,7 +18,6 @@ app.use(express.json())
 app.use('/api/files', filesRouter)
 app.use('/api/qr', qrRouter)
 app.use('/api/session', sessionRouter)
-app.use('/api/room', roomRouter)
 
 const dataDir = path.join(process.cwd(), 'backend', 'data')
 fs.mkdirSync(dataDir, { recursive: true })

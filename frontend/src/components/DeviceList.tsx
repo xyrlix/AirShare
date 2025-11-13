@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export default function DeviceList({ ws, selfId, room, token, exp, sig, peers }: { ws: WebSocket | null, selfId: string, room: string, token: string, exp: number, sig: string, peers: { id: string, name?: string }[] }) {
   const [qr, setQr] = useState<string>('')
+  const { t } = useTranslation()
   useEffect(() => {
     const url = window.location.origin.replace('http:', 'https:')
     const qs = new URLSearchParams({ room, url, token, exp: String(exp), sig }).toString()
@@ -9,13 +11,13 @@ export default function DeviceList({ ws, selfId, room, token, exp, sig, peers }:
   }, [room, token, exp, sig])
   return (
     <div>
-      <div>房间 {room}</div>
+      <div>{t('room')}: {room}</div>
       {qr && <img src={qr} alt="qr" style={{ width: 160, height: 160 }} />}
       <ul>
-        <li>自己 {selfId}</li>
+        <li>{t('self')}: {selfId}</li>
         {peers.map(p => <li key={p.id}>{p.name || p.id}</li>)}
       </ul>
-      <button onClick={() => ws?.send(JSON.stringify({ t: 'peers' }))}>刷新设备</button>
+      <button onClick={() => ws?.send(JSON.stringify({ t: 'peers' }))}>{t('refresh')}</button>
     </div>
   )
 }

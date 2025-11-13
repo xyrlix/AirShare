@@ -3,5 +3,16 @@
   "files": "Files",
   "transfer": "Transfer",
   "history": "History",
-  "settings": "Settings"
+  "settings": "Settings",
+  "room": "Room",
+  "self": "Self",
+  "refresh": "Refresh Devices",
+  "lan_devices": "LAN Devices",
+  "name": "Name",
+  "address": "Address",
+  "port": "Port",
+  "fingerprint": "Fingerprint",
+  "action": "Action",
+  "open": "Open",
+  "blocked_fp": "Fingerprint mismatch, connection blocked"
 }

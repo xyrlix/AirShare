@@ -1,18 +1,20 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 type Dev = { name: string, addr: string, port: number, meta: string[] }
 
 export default function LanDevices() {
   const [list, setList] = useState<Dev[]>([])
+  const { t } = useTranslation()
   useEffect(() => {
     fetch('http://localhost:8444/api/devices').then(r => r.json()).then(setList).catch(() => {})
   }, [])
   return (
     <div>
-      <div>局域网设备</div>
+      <div>{t('lan_devices')}</div>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr><th>名称</th><th>地址</th><th>端口</th><th>指纹</th><th>操作</th></tr>
+          <tr><th>{t('name')}</th><th>{t('address')}</th><th>{t('port')}</th><th>{t('fingerprint')}</th><th>{t('action')}</th></tr>
         </thead>
         <tbody>
           {list.map((d, i) => {
@@ -23,7 +25,7 @@ export default function LanDevices() {
                 <td>{d.addr}</td>
                 <td>{d.port}</td>
                 <td>{fp}</td>
-                <td><a href={`https://${d.addr}:8443/?fp=${fp}`} target="_blank" rel="noreferrer">打开</a></td>
+                <td><a href={`https://${d.addr}:8443/?fp=${fp}`} target="_blank" rel="noreferrer">{t('open')}</a></td>
               </tr>
             )
           })}
