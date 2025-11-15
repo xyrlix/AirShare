@@ -1,3 +1,5 @@
+package discovery
+
 import (
 	"context"
 	"fmt"
@@ -7,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/airshare/backend/pkg/models"
+	"airshare-backend/pkg/models"
 )
 
 // HTTPDiscovery 实现基于HTTP的设备发现服务

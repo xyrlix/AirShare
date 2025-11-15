@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/airshare/backend/pkg/models"
+	"airshare-backend/pkg/models"
 )
 
 // DiscoveryManager 设备发现管理器

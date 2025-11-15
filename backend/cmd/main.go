@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -11,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AirShare/backend/internal/config"
-	"github.com/AirShare/backend/internal/discovery"
-	"github.com/AirShare/backend/internal/server"
-	"github.com/AirShare/backend/internal/transfer"
+	"airshare-backend/internal/config"
+	"airshare-backend/internal/discovery"
+	"airshare-backend/internal/server"
+	"airshare-backend/internal/transfer"
 )
 
 func main() {
@@ -28,35 +27,35 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// 创建上下文
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// 创建上下文（暂时未使用）
 
 	// 初始化服务
-	discoveryService := discovery.NewService(cfg)
-	transferService := transfer.NewService(cfg)
-	server := server.New(cfg, discoveryService, transferService)
+	// 使用默认参数创建discoveryManager
+	discoveryManager := discovery.NewDiscoveryManager(5*time.Second, 30*time.Second, 100)
+	transferService, err := transfer.NewService(&cfg.Transfer)
+	if err != nil {
+		log.Fatalf("Failed to create transfer service: %v", err)
+	}
+	server := server.New(&cfg.Server, discoveryManager, transferService)
 
 	// 启动服务
 	errCh := make(chan error, 3)
 
 	// 启动设备发现服务
+	// 注意：Start方法不接受参数
 	go func() {
-		if err := discoveryService.Start(ctx); err != nil {
-			errCh <- fmt.Errorf("discovery service error: %v", err)
-		}
+		discoveryManager.Start()
 	}()
 
 	// 启动文件传输服务
+	// transferService没有Start方法，我们直接跳过
 	go func() {
-		if err := transferService.Start(ctx); err != nil {
-			errCh <- fmt.Errorf("transfer service error: %v", err)
-		}
+		// 传输服务不需要启动
 	}()
 
 	// 启动HTTP服务器
 	go func() {
-		log.Printf("Starting server on %s", cfg.Server.Address)
+		log.Printf("Starting server on %s:%d", cfg.Server.Host, cfg.Server.Port)
 		if err := server.Start(); err != nil && err != http.ErrServerClosed {
 			errCh <- fmt.Errorf("server error: %v", err)
 		}
@@ -75,21 +74,16 @@ func main() {
 
 	// 优雅关闭
 	log.Println("Shutting down services...")
-	
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
+	// 由于我们不使用shutdownCtx，直接使用defer关闭
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
-	}
+	// 停止服务器
+	server.Stop()
 
-	if err := transferService.Stop(shutdownCtx); err != nil {
-		log.Printf("Transfer service stop error: %v", err)
-	}
+	// 停止传输服务
+	transferService.Stop()
 
-	if err := discoveryService.Stop(shutdownCtx); err != nil {
-		log.Printf("Discovery service stop error: %v", err)
-	}
+	// 停止设备发现服务
+	discoveryManager.Stop()
 
 	log.Println("AirShare server stopped successfully")
 }

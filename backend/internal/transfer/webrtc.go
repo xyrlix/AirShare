@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v3"
-	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -25,12 +23,13 @@ type WebRTCTransferService struct {
 
 // WebRTCPeer 表示一个WebRTC对等连接
 type WebRTCPeer struct {
-	ID         string
-	connection *webrtc.PeerConnection
+	ID          string
+	connection  *webrtc.PeerConnection
 	datachannel *webrtc.DataChannel
 	transfers   map[string]*FileTransfer
 	onMessage   func(TransferMessage)
 	onClose     func()
+	mu          sync.RWMutex
 }
 
 // FileTransfer 表示文件传输任务
@@ -215,10 +214,15 @@ func (s *WebRTCTransferService) SendFile(peerID string, filePath string, metadat
 	peer.mu.Unlock()
 
 	// 发送文件元数据
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("序列化metadata失败: %v", err)
+	}
 	msg := TransferMessage{
-		Type:     MessageTypeFileMetadata,
-		TransferID: transferID,
-		Data:     metadata,
+		Type:        MessageTypeFileMetadata,
+		TransferID:  transferID,
+		Data:        metadataBytes,
+		Timestamp:   time.Now().Unix(),
 	}
 
 	return s.sendMessage(peerID, msg)

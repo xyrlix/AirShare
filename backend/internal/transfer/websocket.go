@@ -16,7 +16,7 @@ type WebSocketServer struct {
 	upgrader websocket.Upgrader
 	clients  map[string]*WebSocketClient
 	mu       sync.RWMutex
-	handlers map[string]MessageHandler
+	handlers map[string]WSMessageHandler
 }
 
 // WebSocketClient 表示WebSocket客户端连接
@@ -28,8 +28,8 @@ type WebSocketClient struct {
 	lastActive time.Time
 }
 
-// MessageHandler WebSocket消息处理器
-type MessageHandler func(client *WebSocketClient, msg WebSocketMessage) error
+// WSMessageHandler WebSocket消息处理器
+type WSMessageHandler func(client *WebSocketClient, msg WebSocketMessage) error
 
 // WebSocketMessage WebSocket消息格式
 type WebSocketMessage struct {
@@ -41,16 +41,16 @@ type WebSocketMessage struct {
 
 // 消息类型常量
 const (
-	MessageTypeConnect     = "connect"
-	MessageTypeDisconnect  = "disconnect"
-	MessageTypePing        = "ping"
-	MessageTypePong        = "pong"
-	MessageTypeFileInfo    = "file_info"
-	MessageTypeTransfer    = "transfer"
-	MessageTypeProgress    = "progress"
-	MessageTypeError       = "error"
-	MessageTypeDiscovery   = "discovery"
-	MessageTypeDeviceInfo  = "device_info"
+	WSMessageTypeConnect     = "connect"
+	WSMessageTypeDisconnect  = "disconnect"
+	WSMessageTypePing        = "ping"
+	WSMessageTypePong        = "pong"
+	WSMessageTypeFileInfo    = "file_info"
+	WSMessageTypeTransfer    = "transfer"
+	WSMessageTypeProgress    = "progress"
+	WSMessageTypeError       = "error"
+	WSMessageTypeDiscovery   = "discovery"
+	WSMessageTypeDeviceInfo  = "device_info"
 )
 
 // NewWebSocketServer 创建新的WebSocket服务器
@@ -65,12 +65,12 @@ func NewWebSocketServer() *WebSocketServer {
 			WriteBufferSize: 1024,
 		},
 		clients:  make(map[string]*WebSocketClient),
-		handlers: make(map[string]MessageHandler),
+		handlers: make(map[string]WSMessageHandler),
 	}
 }
 
 // RegisterHandler 注册消息处理器
-func (s *WebSocketServer) RegisterHandler(messageType string, handler MessageHandler) {
+func (s *WebSocketServer) RegisterHandler(messageType string, handler WSMessageHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.handlers[messageType] = handler
@@ -189,7 +189,7 @@ func (s *WebSocketServer) sendWelcomeMessage(client *WebSocketClient) {
 // 发送错误消息
 func (s *WebSocketServer) sendError(client *WebSocketClient, errorCode, message string) {
 	msg := WebSocketMessage{
-		Type:      MessageTypeError,
+		Type:      WSMessageTypeError,
 		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"code":    errorCode,
@@ -271,7 +271,7 @@ func (s *WebSocketServer) cleanupClient(client *WebSocketClient) {
 
 	// 广播设备离线消息
 	s.Broadcast(WebSocketMessage{
-		Type:      MessageTypeDisconnect,
+		Type:      WSMessageTypeDisconnect,
 		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"client_id": client.ID,
@@ -309,16 +309,16 @@ func generateClientID() string {
 
 // 默认消息处理器
 func (s *WebSocketServer) registerDefaultHandlers() {
-	s.RegisterHandler(MessageTypePing, s.handlePing)
-	s.RegisterHandler(MessageTypeConnect, s.handleConnect)
-	s.RegisterHandler(MessageTypeDiscovery, s.handleDiscovery)
-	s.RegisterHandler(MessageTypeDeviceInfo, s.handleDeviceInfo)
+	s.RegisterHandler(WSMessageTypePing, s.handlePing)
+	s.RegisterHandler(WSMessageTypeConnect, s.handleConnect)
+	s.RegisterHandler(WSMessageTypeDiscovery, s.handleDiscovery)
+	s.RegisterHandler(WSMessageTypeDeviceInfo, s.handleDeviceInfo)
 }
 
 // 处理Ping消息
 func (s *WebSocketServer) handlePing(client *WebSocketClient, msg WebSocketMessage) error {
 	response := WebSocketMessage{
-		Type:      MessageTypePong,
+		Type:      WSMessageTypePong,
 		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"message": "pong",
@@ -337,7 +337,7 @@ func (s *WebSocketServer) handleConnect(client *WebSocketClient, msg WebSocketMe
 
 	// 广播设备上线消息
 	s.Broadcast(WebSocketMessage{
-		Type:      MessageTypeDeviceInfo,
+		Type:      WSMessageTypeDeviceInfo,
 		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"client_id":   client.ID,
@@ -355,7 +355,7 @@ func (s *WebSocketServer) handleDiscovery(client *WebSocketClient, msg WebSocket
 	onlineDevices := s.getOnlineDevices()
 
 	response := WebSocketMessage{
-		Type:      MessageTypeDiscovery,
+		Type:      WSMessageTypeDiscovery,
 		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"devices": onlineDevices,

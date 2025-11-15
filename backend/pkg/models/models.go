@@ -4,17 +4,42 @@ import (
 	"time"
 )
 
+// Device 是DeviceInfo的别名
+type Device = DeviceInfo
+
+// DeviceStatus 设备状态
+type DeviceStatus string
+
+const (
+	DeviceStatusOnline  DeviceStatus = "online"
+	DeviceStatusOffline DeviceStatus = "offline"
+	DeviceStatusUnknown DeviceStatus = "unknown"
+)
+
+// DeviceType 设备类型
+type DeviceType string
+
+const (
+	DeviceTypeUnknown  DeviceType = "unknown"
+	DeviceTypeDesktop  DeviceType = "desktop"
+	DeviceTypeMobile   DeviceType = "mobile"
+	DeviceTypeWeb      DeviceType = "web"
+	DeviceTypeTablet   DeviceType = "tablet"
+)
+
 // DeviceInfo 设备信息
 type DeviceInfo struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Type      string    `json:"type"` // "desktop", "mobile", "web"
-	OS        string    `json:"os"`
-	IP        string    `json:"ip"`
-	Port      int       `json:"port"`
-	LastSeen  time.Time `json:"last_seen"`
-	IsOnline  bool      `json:"is_online"`
-	Version   string    `json:"version"`
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	Type      DeviceType   `json:"type"` // "desktop", "mobile", "web"
+	OS        string       `json:"os"`
+	Platform  string       `json:"platform"`
+	IP        string       `json:"ip"`
+	Port      int          `json:"port"`
+	LastSeen  time.Time    `json:"last_seen"`
+	IsOnline  bool         `json:"is_online"`
+	Status    DeviceStatus `json:"status"`
+	Version   string       `json:"version"`
 }
 
 // TransferRequest 传输请求
