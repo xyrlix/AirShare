@@ -59,17 +59,16 @@ func (s *TLSService) GetTLSConfig(deviceID string) (*tls.Config, error) {
 
 	// 创建TLS配置
 	config = &tls.Config{
-		Certificates: []tls.Certificate{tlsCert},
-		MinVersion:   tls.VersionTLS12,
+		Certificates:           []tls.Certificate{tlsCert},
+		MinVersion:             tls.VersionTLS12,
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 		},
-		PreferServerCipherSuites: true,
-		SessionTicketsDisabled:   false,
-		ClientSessionCache:       tls.NewLRUClientSessionCache(1000),
-		NextProtos:               []string{"h2", "http/1.1"},
+		SessionTicketsDisabled: false,
+		ClientSessionCache:     tls.NewLRUClientSessionCache(1000),
+		NextProtos:             []string{"h2", "http/1.1"},
 	}
 
 	s.mu.Lock()
@@ -168,7 +167,7 @@ func (s *TLSService) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains [][
 }
 
 // GenerateSecureConnection 创建安全连接
-func (s *TLSService) GenerateSecureConnection(deviceID string) (*tls.Conn, error) {
+func (s *TLSService) GenerateSecureConnection(deviceID string, address string) (*tls.Conn, error) {
 	tlsConfig, err := s.GetTLSConfig(deviceID)
 	if err != nil {
 		return nil, err
@@ -178,7 +177,11 @@ func (s *TLSService) GenerateSecureConnection(deviceID string) (*tls.Conn, error
 	tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 	tlsConfig.VerifyPeerCertificate = s.VerifyPeerCertificate
 
-	return tls.Dial("tcp", "", tlsConfig)
+	if address == "" {
+		return nil, fmt.Errorf("连接地址不能为空")
+	}
+
+	return tls.Dial("tcp", address, tlsConfig)
 }
 
 // CreateSecureListener 创建安全监听器

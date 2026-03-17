@@ -4,9 +4,8 @@ go 1.23.0
 
 toolchain go1.23.4
 
-replace airshare-backend => ./
-
 require (
+	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.0
 	github.com/hashicorp/mdns v1.0.6
 	github.com/pion/webrtc/v3 v3.2.0
@@ -18,7 +17,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/uuid v1.3.0 // indirect
-	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/miekg/dns v1.1.55 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect

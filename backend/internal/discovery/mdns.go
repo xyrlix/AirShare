@@ -153,41 +153,48 @@ func (m *MDNSDiscovery) discoverOnInterface(iface net.Interface) {
 		if err == nil {
 			for _, addr := range addrs {
 				if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() == nil {
-					// 这是一个IPv6地址，在Windows上跳过
+					// 这是一个纯IPv6地址接口，在Windows上跳过
 					return
 				}
 			}
 		}
 	}
 
+	entriesCh := make(chan *mdns.ServiceEntry, 32)
+
 	// 创建mDNS查询参数
 	params := &mdns.QueryParam{
-		Service: "_airshare._tcp",
-		Domain: "local",
-		Timeout: m.scanInterval / 2,
-		Interface: &iface,
-		Entries: make(chan *mdns.ServiceEntry, 32),
+		Service:             "_airshare._tcp",
+		Domain:              "local",
+		Timeout:             m.scanInterval / 2,
+		Interface:           &iface,
+		Entries:             entriesCh,
 		WantUnicastResponse: false,
 	}
 
-	// 执行查询
+	// 在goroutine中读取发现的设备
+	go func() {
+		for entry := range entriesCh {
+			if entry != nil && entry.AddrV4 != nil {
+				m.handleDiscoveredDevice(entry)
+			}
+		}
+	}()
+
+	// 执行查询（会在Timeout后关闭entriesCh）
 	if err := mdns.Query(params); err != nil {
 		// 过滤掉Windows上的IPv6绑定错误，避免日志过于冗长
 		if runtime.GOOS == "windows" {
 			if strings.Contains(err.Error(), "udp6") ||
-			   strings.Contains(err.Error(), "IPv6") ||
-			   strings.Contains(err.Error(), "address family not supported") ||
-			   strings.Contains(err.Error(), "Only one usage of each socket") {
+				strings.Contains(err.Error(), "IPv6") ||
+				strings.Contains(err.Error(), "address family not supported") ||
+				strings.Contains(err.Error(), "Only one usage of each socket") {
 				// 这些错误在Windows上是预期的，静默忽略
 				return
 			}
 		}
 		log.Printf("mDNS query failed on interface %s: %v", iface.Name, err)
-		return
 	}
-
-	// 由于mdns.Query不返回entries，暂时跳过设备处理逻辑
-	// 后续需要检查mdns库的正确使用方式来获取发现的设备
 }
 
 // handleDiscoveredDevice 处理发现的设备
@@ -239,10 +246,15 @@ func (m *MDNSDiscovery) generateDeviceID(entry *mdns.ServiceEntry) string {
 // extractDeviceName 提取设备名称
 func (m *MDNSDiscovery) extractDeviceName(entry *mdns.ServiceEntry) string {
 	// 从主机名中提取设备名称
-	name := strings.TrimSuffix(entry.Host, ".local")
+	name := strings.TrimSuffix(entry.Host, ".local.")
+	name = strings.TrimSuffix(name, ".local")
 	name = strings.ReplaceAll(name, "-", " ")
-	name = strings.Title(name)
-	
+
+	// 首字母大写
+	if len(name) > 0 {
+		name = strings.ToUpper(name[:1]) + name[1:]
+	}
+
 	return name
 }
 

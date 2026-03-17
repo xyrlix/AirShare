@@ -1,16 +1,19 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"airshare-backend/internal/config"
 	"airshare-backend/internal/discovery"
 	"airshare-backend/internal/transfer"
 	"airshare-backend/pkg/models"
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
 
@@ -20,8 +23,9 @@ type Server struct {
 	discoveryService *discovery.DiscoveryManager
 	transferService  *transfer.Service
 	upgrader         websocket.Upgrader
-	clients         map[*websocket.Conn]bool
-	clientMutex     sync.RWMutex
+	clients          map[*websocket.Conn]bool
+	clientMutex      sync.RWMutex
+	httpServer       *http.Server
 }
 
 // New 创建新的服务器
@@ -41,33 +45,77 @@ func New(serverConfig *config.ServerConfig, discoveryService *discovery.Discover
 
 // Start 启动服务器
 func (s *Server) Start() error {
-	// 设置路由
-	http.HandleFunc("/", s.handleRoot)
-	http.HandleFunc("/api/devices", s.handleDevices)
-	http.HandleFunc("/api/transfer", s.handleTransfer)
-	http.HandleFunc("/ws", s.handleWebSocket)
+	// 使用 gorilla/mux 创建独立路由器
+	router := mux.NewRouter()
 
-	// 启动文件服务
+	// API 路由
+	api := router.PathPrefix("/api").Subrouter()
+
+	// 设备相关路由
+	api.HandleFunc("/devices", s.handleGetDevices).Methods("GET")
+
+	// 传输相关路由
+	api.HandleFunc("/transfer", s.handleSendFile).Methods("POST")
+	api.HandleFunc("/transfer/history", s.handleGetTransferHistory).Methods("GET")
+	api.HandleFunc("/transfer/{transfer_id}", s.handleGetTransferStatus).Methods("GET")
+	api.HandleFunc("/transfer/{transfer_id}/cancel", s.handleCancelTransfer).Methods("POST")
+	api.HandleFunc("/transfer/{transfer_id}/pause", s.handlePauseTransfer).Methods("POST")
+	api.HandleFunc("/transfer/{transfer_id}/resume", s.handleResumeTransfer).Methods("POST")
+	api.HandleFunc("/transfer/{transfer_id}/file/{filename}", s.handleDownloadFile).Methods("GET")
+
+	// 文件相关路由
+	api.HandleFunc("/files", s.handleGetFiles).Methods("GET")
+	api.HandleFunc("/files/{filename}", s.handleDeleteFile).Methods("DELETE")
+
+	// 健康检查
+	api.HandleFunc("/health", s.handleHealth).Methods("GET")
+	api.HandleFunc("/status", s.handleStatus).Methods("GET")
+
+	// WebSocket 路由
+	router.HandleFunc("/ws", s.handleWebSocket)
+
+	// 根路由
+	router.HandleFunc("/", s.handleRoot)
+
+	// 静态文件服务
 	if s.config.WebRoot != "" {
-		http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(s.config.WebRoot))))
+		router.PathPrefix("/static/").Handler(
+			http.StripPrefix("/static/", http.FileServer(http.Dir(s.config.WebRoot))),
+		)
 	}
 
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
 	log.Printf("服务器启动在 %s", addr)
-	
-	return http.ListenAndServe(addr, nil)
+
+	s.httpServer = &http.Server{
+		Addr:         addr,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	return s.httpServer.ListenAndServe()
 }
 
 // Stop 停止服务器
 func (s *Server) Stop() {
-	s.clientMutex.Lock()
-	defer s.clientMutex.Unlock()
-
 	// 关闭所有WebSocket连接
+	s.clientMutex.Lock()
 	for client := range s.clients {
 		client.Close()
 	}
 	s.clients = make(map[*websocket.Conn]bool)
+	s.clientMutex.Unlock()
+
+	// 优雅关闭 HTTP 服务器
+	if s.httpServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			log.Printf("服务器关闭失败: %v", err)
+		}
+	}
 }
 
 // handleRoot 处理根路径
@@ -82,30 +130,41 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleDevices 处理设备列表请求
-func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
-	// 暂时返回空设备列表，因为s.discoveryService.GetDevices方法未定义
-	// devices := s.discoveryService.GetDevices()
+// handleHealth 健康检查
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.sendJSONResponse(w, http.StatusOK, models.APIResponse{
 		Success: true,
-		Data:    []string{},
+		Message: "OK",
 	})
 }
 
-// handleTransfer 处理文件传输请求
+// handleStatus 服务状态
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	stats := s.discoveryService.GetStats()
+	s.sendJSONResponse(w, http.StatusOK, models.APIResponse{
+		Success: true,
+		Data:    stats,
+	})
+}
+
+// handleDevices 处理设备列表请求（旧兼容路由）
+func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
+	devices := s.discoveryService.GetOnlineDevices()
+	s.sendJSONResponse(w, http.StatusOK, models.APIResponse{
+		Success: true,
+		Data:    devices,
+	})
+}
+
+// handleTransfer 处理文件传输请求（旧兼容路由）
 func (s *Server) handleTransfer(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "POST":
-		// 暂时返回一个占位响应，因为handleTransferStart方法未定义
-		s.sendJSONResponse(w, http.StatusOK, models.APIResponse{
-			Success: true,
-			Message: "Transfer functionality not fully implemented",
-		})
+		s.handleSendFile(w, r)
 	case "GET":
-		// 暂时返回一个占位响应，因为handleTransferStatus方法未定义
 		s.sendJSONResponse(w, http.StatusOK, models.APIResponse{
 			Success: true,
-			Message: "Transfer status functionality not fully implemented",
+			Message: "Transfer status functionality",
 		})
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -154,13 +213,12 @@ func (s *Server) handleWebSocketMessage(conn *websocket.Conn, msg *models.WebSoc
 
 // sendDeviceList 发送设备列表
 func (s *Server) sendDeviceList(conn *websocket.Conn) {
-	// 暂时返回空设备列表，因为s.discoveryService.GetDevices方法未定义
-	// devices := s.discoveryService.GetDevices()
+	devices := s.discoveryService.GetOnlineDevices()
 	msg := models.WebSocketMessage{
 		Type: models.MessageTypeDeviceList,
-		Data: []string{},
+		Data: devices,
 	}
-	
+
 	if err := conn.WriteJSON(msg); err != nil {
 		log.Printf("发送设备列表失败: %v", err)
 	}
@@ -173,10 +231,9 @@ func (s *Server) handleTransferMessage(conn *websocket.Conn, msg *models.WebSock
 	responseMsg := models.WebSocketMessage{
 		Type: models.MessageTypeProgress,
 		Data: map[string]interface{}{
-			"message": "传输功能正在开发中",
+			"message": "传输功能正在处理中",
 		},
 	}
-	// 直接使用websocket的WriteJSON方法
 	if err := conn.WriteJSON(responseMsg); err != nil {
 		log.Printf("发送传输消息失败: %v", err)
 	}
@@ -188,7 +245,7 @@ func (s *Server) sendError(conn *websocket.Conn, errorMsg string) {
 		Type:  models.MessageTypeError,
 		Error: errorMsg,
 	}
-	
+
 	if err := conn.WriteJSON(msg); err != nil {
 		log.Printf("发送错误消息失败: %v", err)
 	}
@@ -198,7 +255,7 @@ func (s *Server) sendError(conn *websocket.Conn, errorMsg string) {
 func (s *Server) sendJSONResponse(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		log.Printf("JSON编码失败: %v", err)
 	}
@@ -207,18 +264,20 @@ func (s *Server) sendJSONResponse(w http.ResponseWriter, status int, data interf
 // broadcastToClients 广播消息给所有客户端
 func (s *Server) broadcastToClients(msg models.WebSocketMessage) {
 	s.clientMutex.RLock()
-	defer s.clientMutex.RUnlock()
-
+	clients := make([]*websocket.Conn, 0, len(s.clients))
 	for client := range s.clients {
+		clients = append(clients, client)
+	}
+	s.clientMutex.RUnlock()
+
+	for _, client := range clients {
 		if err := client.WriteJSON(msg); err != nil {
 			log.Printf("广播消息失败: %v", err)
 			// 移除失败的客户端
-			go func(c *websocket.Conn) {
-				s.clientMutex.Lock()
-				delete(s.clients, c)
-				s.clientMutex.Unlock()
-				c.Close()
-			}(client)
+			s.clientMutex.Lock()
+			delete(s.clients, client)
+			s.clientMutex.Unlock()
+			client.Close()
 		}
 	}
 }

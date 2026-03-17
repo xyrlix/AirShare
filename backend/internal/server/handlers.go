@@ -3,8 +3,11 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"airshare-backend/pkg/models"
 	"github.com/gorilla/mux"
@@ -13,10 +16,10 @@ import (
 // API处理函数
 
 func (s *Server) handleGetDevices(w http.ResponseWriter, r *http.Request) {
-	// 暂时返回空设备列表，因为s.discoveryService.GetDevices方法未定义
-	// devices := s.discoveryService.GetDevices()
+	devices := s.discoveryService.GetOnlineDevices()
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"devices": []string{},
+		"success": true,
+		"data":    devices,
 	})
 }
 
@@ -27,21 +30,15 @@ func (s *Server) handleSendFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 暂时跳过目标设备验证，因为相关方法和字段未定义
-	// if !s.discoveryService.DeviceExists(req.TargetDeviceID) {
-	// 	respondError(w, http.StatusNotFound, "Target device not found")
-	// 	return
-	// }
-
 	// 开始传输
-	transferID, err := s.transferService.StartTransfer(&req)
+	transfer, err := s.transferService.StartTransfer(&req)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to start transfer")
 		return
 	}
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
-		"transfer_id": transferID,
+		"transfer_id": transfer.ID,
 		"status":      "started",
 	})
 }
@@ -88,50 +85,97 @@ func (s *Server) handleGetFiles(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	filename := vars["filename"]
+	transferID := vars["transfer_id"]
+	fileID := vars["filename"]
 
-	// 暂时不使用s.config.Storage.Directory，因为配置可能未定义
-	// filePath := filepath.Join(s.config.Storage.Directory, filename)
+	// 安全路径检查：防止路径遍历攻击
+	if fileID == "" || strings.Contains(fileID, "/") || strings.Contains(fileID, "\\") || strings.Contains(fileID, "..") {
+		respondError(w, http.StatusBadRequest, "Invalid filename")
+		return
+	}
 
-	// 暂时注释掉安全检查
-	// if !isSafePath(filePath, s.config.Storage.Directory) {
-	// 	respondError(w, http.StatusBadRequest, "Invalid filename")
-	// 	return
-	// }
+	// 下载文件
+	reader, fileInfo, err := s.transferService.DownloadFile(transferID, fileID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "File not found")
+		return
+	}
+	defer reader.Close()
 
 	// 设置下载头
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileInfo.Name))
 	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size))
 
-	// 暂时不实现文件下载
-	respondError(w, http.StatusNotImplemented, "File download not implemented")
+	if _, err := io.Copy(w, reader); err != nil {
+		// 传输已开始无法再返回错误响应
+		fmt.Printf("文件传输错误: %v\n", err)
+	}
 }
 
 func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	// 暂时不实现删除文件逻辑，因为s.transferService.DeleteFile方法未定义
-	// vars := mux.Vars(r)
-	// filename := vars["filename"]
-	// if err := s.transferService.DeleteFile(filename); err != nil {
-	// 	respondError(w, http.StatusInternalServerError, "Failed to delete file")
-	// 	return
-	// }
-
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "File deleted successfully",
+	})
+}
+
+// handlePauseTransfer 暂停传输
+func (s *Server) handlePauseTransfer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	transferID := vars["transfer_id"]
+
+	if err := s.transferService.PauseTransfer(transferID); err != nil {
+		respondError(w, http.StatusNotFound, "Transfer not found or cannot be paused")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"status": "paused",
+	})
+}
+
+// handleResumeTransfer 恢复传输
+func (s *Server) handleResumeTransfer(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	transferID := vars["transfer_id"]
+
+	if err := s.transferService.ResumeTransfer(transferID); err != nil {
+		respondError(w, http.StatusNotFound, "Transfer not found or cannot be resumed")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"status": "resumed",
+	})
+}
+
+// handleGetTransferHistory 获取传输历史
+func (s *Server) handleGetTransferHistory(w http.ResponseWriter, r *http.Request) {
+	history := s.transferService.GetTransferHistory()
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    history,
 	})
 }
 
 // WebSocket处理函数
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// 升级到WebSocket连接
-	// 使用s.upgrader而不是全局upgrader
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		fmt.Printf("WebSocket upgrade failed: %v\n", err)
 		return
 	}
 
-	// 处理WebSocket消息
+	// 将新连接注册到客户端 map，确保广播能送达
+	s.clientMutex.Lock()
+	s.clients[conn] = true
+	s.clientMutex.Unlock()
+
+	log.Printf("WebSocket新连接: %s，当前连接数: %d", conn.RemoteAddr(), len(s.clients))
+
+	// 处理WebSocket消息（断开时自动从 map 移除）
 	go s.handleWebSocketMessages(conn)
 }
 
@@ -153,5 +197,5 @@ func isSafePath(filePath, baseDir string) bool {
 	if err != nil {
 		return false
 	}
-	return !filepath.IsAbs(rel) && rel != ".." && rel[:3] != "../"
+	return !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, "../")
 }

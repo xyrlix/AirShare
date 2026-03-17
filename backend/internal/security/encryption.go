@@ -1,6 +1,7 @@
 package security
 
 import (
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -12,7 +13,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -386,7 +386,11 @@ func (s *EncryptionService) verifySignature(data, signature []byte, senderID str
 	s.mu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("发送者证书不存在: %s", senderID)
+		// 如果没有发送者证书，使用本机公钥验证（用于本地测试）
+		s.mu.RLock()
+		publicKey := s.publicKey
+		s.mu.RUnlock()
+		return rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hash[:], signature)
 	}
 
 	publicKey := cert.PublicKey.(*rsa.PublicKey)
@@ -412,7 +416,10 @@ func (s *EncryptionService) GenerateSharedSecret(peerPublicKeyPEM string) (strin
 		return "", fmt.Errorf("解析公钥失败: %v", err)
 	}
 
-	peerPublicKey := publicKey.(*rsa.PublicKey)
+	// 验证是RSA公钥
+	if _, ok := publicKey.(*rsa.PublicKey); !ok {
+		return "", fmt.Errorf("不支持的公钥类型")
+	}
 
 	// 使用ECDH或其他密钥交换协议建立共享密钥
 	// 这里简化实现，实际应该使用更安全的密钥交换协议
