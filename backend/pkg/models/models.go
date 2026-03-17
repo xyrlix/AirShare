@@ -72,12 +72,14 @@ type FileInfo struct {
 type TransferStatus string
 
 const (
-	TransferPending   TransferStatus = "pending"
-	TransferStarted   TransferStatus = "started"
-	TransferProgress  TransferStatus = "progress"
-	TransferCompleted TransferStatus = "completed"
-	TransferFailed    TransferStatus = "failed"
-	TransferCancelled TransferStatus = "cancelled"
+	TransferPending    TransferStatus = "pending"
+	TransferStarted    TransferStatus = "started"
+	TransferInProgress TransferStatus = "in_progress"
+	TransferProgress   TransferStatus = "progress"
+	TransferPaused     TransferStatus = "paused"
+	TransferCompleted  TransferStatus = "completed"
+	TransferFailed     TransferStatus = "failed"
+	TransferCancelled  TransferStatus = "cancelled"
 )
 
 // WebSocketMessage WebSocket消息

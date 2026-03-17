@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -209,6 +210,56 @@ func (s *Service) CancelTransfer(transferID string) error {
 	return nil
 }
 
+// PauseTransfer 暂停传输
+func (s *Service) PauseTransfer(transferID string) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	transfer, exists := s.transfers[transferID]
+	if !exists {
+		return fmt.Errorf("传输不存在: %s", transferID)
+	}
+
+	if transfer.Status != models.TransferInProgress {
+		return fmt.Errorf("传输当前状态无法暂停: %s", transfer.Status)
+	}
+
+	transfer.Status = models.TransferPaused
+	log.Printf("传输已暂停: %s", transferID)
+	return nil
+}
+
+// ResumeTransfer 恢复传输
+func (s *Service) ResumeTransfer(transferID string) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	transfer, exists := s.transfers[transferID]
+	if !exists {
+		return fmt.Errorf("传输不存在: %s", transferID)
+	}
+
+	if transfer.Status != models.TransferPaused {
+		return fmt.Errorf("传输当前状态无法恢复: %s", transfer.Status)
+	}
+
+	transfer.Status = models.TransferInProgress
+	log.Printf("传输已恢复: %s", transferID)
+	return nil
+}
+
+// GetTransferHistory 获取传输历史
+func (s *Service) GetTransferHistory() []*models.TransferRequest {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	history := make([]*models.TransferRequest, 0, len(s.transfers))
+	for _, t := range s.transfers {
+		history = append(history, t)
+	}
+	return history
+}
+
 // startCleanupTask 启动清理任务
 func (s *Service) startCleanupTask() {
 	ticker := time.NewTicker(time.Duration(s.config.CleanupPeriod) * time.Hour)
@@ -251,9 +302,14 @@ func (s *Service) Stop() {
 	close(s.stopChan)
 }
 
-// generateID 生成唯一ID
+// generateID 生成唯一ID（使用crypto/rand保证并发安全）
 func generateID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// 极少数情况下rand失败，回退到时间戳
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 // 辅助函数：计算文件校验和
